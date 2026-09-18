@@ -10,7 +10,7 @@ SMB1_NEGOTIATE = (
     b"\x00\x00\x00\x00"
     b"\x18"
     b"\x53\xc8"
-    b"\x00" * 12
+    + b"\x00" * 12 +
     b"\xff\xff"
     b"\xfe\xca"
     b"\x00\x00"
@@ -30,7 +30,7 @@ SMB1_SESSION_SETUP = (
     b"\x00\x00\x00\x00"
     b"\x18"
     b"\x07\xc8"
-    b"\x00" * 12
+    + b"\x00" * 12 +
     b"\xff\xff"
     b"\xfe\xca"
     b"\x00\x00"
@@ -48,7 +48,7 @@ SMB1_SESSION_SETUP = (
     b"\x00\x00\x00\x00"
     b"\x20\x00"
     b"\x00"
-    b"\x00" * 15
+    + b"\x00" * 15 +
     b"\x57\x00\x69\x00\x6e\x00\x64\x00"
     b"\x6f\x00\x77\x00\x73\x00\x00\x00"
 )

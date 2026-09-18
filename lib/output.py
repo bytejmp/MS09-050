@@ -8,6 +8,7 @@ BANNER = r"""
  |_|  |_|____/ \___/|____/      \___/|____/ \___/
 
  CVE-2009-3103 — SMBv2 Remote Code Execution
+ by ByteJMP
 """
 
 
