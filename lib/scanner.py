@@ -3,60 +3,84 @@ from socket import socket, AF_INET, SOCK_STREAM
 
 from lib.output import info, success, error, warning
 
-SMB1_NEGOTIATE = (
-    b"\x00\x00\x00\x90"
-    b"\xff\x53\x4d\x42"
-    b"\x72"
-    b"\x00\x00\x00\x00"
-    b"\x18"
-    b"\x53\xc8"
-    + b"\x00" * 12 +
-    b"\xff\xff"
-    b"\xfe\xca"
-    b"\x00\x00"
-    b"\x00\x00"
-    b"\x00"
-    b"\x62\x00"
-    b"\x02NT LANMAN 1.0\x00"
-    b"\x02NT LM 0.12\x00"
-    b"\x02SMB 2.002\x00"
-    b"\x02SMB 2.???\x00"
-)
 
-SMB1_SESSION_SETUP = (
-    b"\x00\x00\x00\x63"
-    b"\xff\x53\x4d\x42"
-    b"\x73"
-    b"\x00\x00\x00\x00"
-    b"\x18"
-    b"\x07\xc8"
-    + b"\x00" * 12 +
-    b"\xff\xff"
-    b"\xfe\xca"
-    b"\x00\x00"
-    b"\x01\x00"
-    b"\x0c"
-    b"\xff"
-    b"\x00"
-    b"\x00\x00"
-    b"\x04\x11"
-    b"\x0a\x00"
-    b"\x00\x00"
-    b"\x00\x00\x00\x00"
-    b"\x01\x00"
-    b"\x00\x00\x00\x00"
-    b"\x00\x00\x00\x00"
-    b"\x20\x00"
-    b"\x00"
-    + b"\x00" * 15 +
-    b"\x57\x00\x69\x00\x6e\x00\x64\x00"
-    b"\x6f\x00\x77\x00\x73\x00\x00\x00"
-)
+def _build_smb1_negotiate():
+    dialects = (
+        b"\x02NT LANMAN 1.0\x00"
+        b"\x02NT LM 0.12\x00"
+        b"\x02SMB 2.002\x00"
+        b"\x02SMB 2.???\x00"
+    )
+
+    smb_header = (
+        b"\xff\x53\x4d\x42"
+        b"\x72"
+        b"\x00\x00\x00\x00"
+        b"\x18"
+        b"\x53\xc8"
+        + b"\x00" * 12 +
+        b"\xff\xff"
+        b"\xfe\xca"
+        b"\x00\x00"
+        b"\x00\x00"
+        b"\x00"
+    )
+
+    byte_count = struct.pack("<H", len(dialects))
+    smb_body = smb_header + byte_count + dialects
+    netbios = struct.pack(">I", len(smb_body))
+
+    return netbios + smb_body
+
+
+def _build_smb1_session_setup():
+    native_os = b"\x57\x00\x69\x00\x6e\x00\x64\x00\x6f\x00\x77\x00\x73\x00\x00\x00"
+
+    smb_header = (
+        b"\xff\x53\x4d\x42"
+        b"\x73"
+        b"\x00\x00\x00\x00"
+        b"\x18"
+        b"\x07\xc8"
+        + b"\x00" * 12 +
+        b"\xff\xff"
+        b"\xfe\xca"
+        b"\x00\x00"
+        b"\x01\x00"
+    )
+
+    params = (
+        b"\x0c"
+        b"\xff"
+        b"\x00"
+        b"\x00\x00"
+        b"\x04\x11"
+        b"\x0a\x00"
+        b"\x00\x00"
+        b"\x00\x00\x00\x00"
+        b"\x01\x00"
+        b"\x00\x00\x00\x00"
+        b"\x00\x00\x00\x00"
+    )
+
+    blob = b"\x00"
+    padding = b"\x00" * 15
+    data = blob + padding + native_os
+    byte_count = struct.pack("<H", len(data))
+
+    smb_body = smb_header + params + byte_count + data
+    netbios = struct.pack(">I", len(smb_body))
+
+    return netbios + smb_body
+
+
+SMB1_NEGOTIATE = _build_smb1_negotiate()
+SMB1_SESSION_SETUP = _build_smb1_session_setup()
 
 VULNERABLE_SIGNATURES = [
-    "Windows Vista",
-    "Windows Server 2008",
-    "Windows 6.0",
+    "windows vista",
+    "windows server 2008",
+    "windows 6.0",
 ]
 
 
@@ -90,23 +114,31 @@ def _extract_os_string(response):
     except Exception:
         decoded = raw.decode("ascii", errors="ignore")
 
+    lower = decoded.lower()
     for sig in VULNERABLE_SIGNATURES:
-        idx = decoded.find(sig[:7])
+        idx = lower.find(sig)
         if idx != -1:
             end = decoded.find("\x00", idx)
             if end == -1:
                 end = min(idx + 60, len(decoded))
             return decoded[idx:end].strip()
 
-    return decoded[:80].strip() if decoded.strip() else None
+    windows_idx = lower.find("windows")
+    if windows_idx != -1:
+        end = decoded.find("\x00", windows_idx)
+        if end == -1:
+            end = min(windows_idx + 60, len(decoded))
+        return decoded[windows_idx:end].strip()
+
+    return None
 
 
-def _detect_smb2_support(response):
+def _detect_smb2(response):
     if len(response) < 8:
         return False
     if response[4:8] == b"\xfeSMB":
         return True
-    if response[4:8] == b"\xffSMB" and len(response) > 37:
+    if response[4:8] == b"\xffSMB" and len(response) > 38:
         dialect_index = struct.unpack("<H", response[37:39])[0]
         if dialect_index >= 2:
             return True
@@ -126,17 +158,6 @@ def _guess_arch_from_os(os_string):
     if "vista" in lower:
         return "x86"
     return None
-
-
-def check_smb_port(target, port=445, timeout=5):
-    try:
-        s = socket(AF_INET, SOCK_STREAM)
-        s.settimeout(timeout)
-        s.connect((target, port))
-        s.close()
-        return True
-    except (ConnectionRefusedError, TimeoutError, OSError):
-        return False
 
 
 def scan_target(target, port=445, timeout=5):
@@ -168,7 +189,7 @@ def scan_target(target, port=445, timeout=5):
             s.close()
             return result
 
-        result["smb2"] = _detect_smb2_support(resp)
+        result["smb2"] = _detect_smb2(resp)
 
         if resp[4:8] == b"\xffSMB":
             s.send(SMB1_SESSION_SETUP)
@@ -187,11 +208,13 @@ def scan_target(target, port=445, timeout=5):
 
     os_str = result["os_string"] or ""
     for sig in VULNERABLE_SIGNATURES:
-        if sig.lower() in os_str.lower():
+        if sig in os_str.lower():
             result["vulnerable"] = True
             break
 
-    if result["smb2"] and not result["os_string"]:
+    # SMB2 present but no OS string means we can't confirm,
+    # but old SMB2 implementations (Vista/2008) are likely vulnerable
+    if not result["vulnerable"] and result["smb2"]:
         result["vulnerable"] = None
 
     result["arch"] = _guess_arch_from_os(os_str)
@@ -226,4 +249,4 @@ def print_scan_results(result, target):
     elif result["vulnerable"] is False:
         error("Target does not appear vulnerable to MS09-050")
     else:
-        warning("Vulnerability status unknown, proceed with caution")
+        warning("Target MAY be vulnerable (SMBv2 detected but could not confirm OS)")

